@@ -69,6 +69,7 @@ loglik <- function(theta) {
 curve(loglik, -10, 10)
 ```
 
+
 ## Newton-Raphson method
 
 ```{r HW3_4, warning=FALSE}
@@ -98,7 +99,7 @@ to the real root.
 ## Fixed point method
 ```{r HW3_5, warning=FALSE}
 ## self-defined fixed point methods to find mle
-## input GFunc as the function to find fixed value, x0 is initial value
+## input gradiant of loglikelihood function, x0 is initial value
 FixPoint.mle <- function(dev.loglik, alpha, x0, maxiter = 100, 
                      tol = .Machine$double.eps^0.5){
   x <- x0
@@ -108,19 +109,77 @@ FixPoint.mle <- function(dev.loglik, alpha, x0, maxiter = 100,
    x <- x.new
   }
   if (i == maxiter) warning("maximum iteration has reached")
-  x
+  return(list(root = x, niter = i))
 }
 alpha <- c(1, 0.64, 0.25)
 root.fixpoint <- matrix(0, ncol = length(alpha), nrow = length(x0))
 for (i in 1:length(alpha)) {
   for (j in 1:length(x0)) {
     root.fixpoint[j, i] <- FixPoint.mle(dev.loglik = dev.loglik, alpha = alpha[i], 
-                                        x0 = x0[j])
+                                        x0 = x0[j])$root
   }
 }
 plot(x0, root.fixpoint[, 1], ylim = c(min(root.fixpoint), max(root.fixpoint)), 
-     ylab = "root", xlab = "initial value", main = "black: alpha = 1; red: 
-     alpha = 0.64; green: alpha = 0.25")
+     ylab = "root", xlab = "initial value", 
+     main = paste0("black: ", expression(alpha), "= 1; red: ", expression(alpha), 
+     "= 0.64; green: ", expression(alpha), "= 0.25"))
 points(x0, root.fixpoint[, 2], col = "red")
 points(x0, root.fixpoint[, 3], col = "green")
 ```
+
+## Fisher scoring and Newton-Raphson
+
+```{r HW3_6, warning=FALSE}
+## Self-defined fisher scoring method to find mle.
+## input gradiant of loglikelihood and sample fisher information.
+FisherScore.mle <- function(dev.loglik, information, x0, maxiter = 100,
+                            tol = .Machine$double.eps^0.5) {
+  x <- x0
+  for (i in 1:maxiter) {
+    x.new <- x + dev.loglik(x) / information(x)
+    if (abs(x.new - x) < tol) break
+    x <- x.new
+   }
+   if (i == maxiter) warning("maximum iteration has reached")
+   return(list(root = x, niter = i))
+}
+FisherNewton.mle <- function(dev.loglik, information, dfun, x0, maxiter = 100, 
+                             tol = .Machine$double.eps^0.5) {
+  method.fisher <- FisherScore.mle(dev.loglik = dev.loglik, information = information, 
+                              x0 = x0, maxiter = maxiter, tol = tol)
+  x.fisher <- method.fisher$root
+  niter.fisher <- method.fisher$niter
+  method.newton <- newtonRaphson(fun = dev.loglik, x0 = x.fisher, dfun = dfun, maxiter = maxiter, 
+                        tol = tol)
+  return(list(root = method.newton$root, niter.fisher = niter.fisher, 
+              niter.newton = method.newton$niter))
+}
+inf.cauchy <- function(x) n/2
+
+root.mix <- rep(0, length(x0))
+for (i in 1:length(x0)) {
+  root.mix[i] <- FisherNewton.mle(dev.loglik, inf.cauchy, dfun = hessian.loglik, 
+                                  x0 = x0[i])$root
+}
+plot(x0, root.mix)
+```
+
+## comparing the different methods
+```{r HW3_7, warning=FALSE}
+library(microbenchmark)
+## comparing the speed of different methods
+## use starting point 5, alpha = 0.25 for fixed point method
+newton.method <- newtonRaphson(fun = dev.loglik, x0 = 5, dfun = hessian.loglik)
+fixpoint.method <- FixPoint.mle(dev.loglik = dev.loglik, alpha = 0.25, x0 = 5)
+fishernewton.method <- FisherNewton.mle(dev.loglik = dev.loglik, information = inf.cauchy, 
+                                dfun = hessian.loglik, x0 = 5)
+list(newton.niter = newton.method$niter, fixpoint.niter = fixpoint.method$niter, 
+     fishernewton.niter = c(fishernewton.method$niter.fisher, 
+                            fishernewton.method$niter.newton))
+```
+Fixed point method is most stable but converges slowly compare to the other two 
+methods. Newton-Raphson methods converges fastest but is the most unstably one. 
+Fisher-Scoring converges slower than Newton, but is very stable and accuracy, 
+after refining with Newton-Raphson methods. Also we can see that if we use 
+fisher scoring root to be the initial value of Newton-Raphson method, it will 
+converge very fast.
